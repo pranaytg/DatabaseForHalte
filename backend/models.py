@@ -134,16 +134,26 @@ class ShippingRequest(BaseModel):
     length_cm: float
     width_cm: float
     height_cm: float
+    is_flyer: bool = False
+    is_cod: bool = False
+    item_value: float = 0.0
 
+
+class ShippingMetrics(BaseModel):
+    amz_chargeable_kg: float
+    delhivery_chargeable_kg: float
+    bluedart_air_chargeable_kg: float
+    bluedart_surface_chargeable_kg: float
 
 class ShippingEstimateResponse(BaseModel):
     zone: str
-    billable_weight_kg: float
     fba: float
-    bluedart: float
+    bluedart_air: float
+    bluedart_surface: float
     delhivery: float
     recommended_carrier: str
     recommended_cost: float
+    metrics: ShippingMetrics
 
 
 # ── Sync responses ───────────────────────────────────────────────────────────
