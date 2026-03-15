@@ -206,9 +206,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-      </div>
-
-      <RevenueProfitAreaChart data={chartData} />
-    </div>
-  );
-}

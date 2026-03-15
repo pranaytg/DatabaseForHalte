@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export function middleware(req: NextRequest) {
+export default function proxy(req: NextRequest) {
   // Use environment variables for production, but fallback to requested credentials
   const ADMIN_USER = process.env.ADMIN_USER || "RamanSir";
   const ADMIN_PASS = process.env.ADMIN_PASSWORD || "RamanSir1234@";

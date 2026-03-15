@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { KPICards } from "@/components/dashboard/KPICards";
+import KPICards from "@/components/dashboard/KPICards";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
 import { RecentOrdersTable } from "@/components/dashboard/RecentOrdersTable";
 import { fetchApi } from "@/lib/api";
