@@ -1,0 +1,507 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calculator, Package, Truck, ArrowRight, Loader2 } from "lucide-react";
+
+import { fetchApi } from "@/lib/api";
+import {
+  ShippingEstimateResponse,
+  ShippingRequest,
+  SkuShippingResponse,
+} from "@/types/shipping";
+import { formatCurrency } from "@/lib/utils";
+
+// We need SKUs to populate the dropdown
+interface SkuOption {
+  sku: string;
+  product_name: string;
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+}
+
+type ShippingFormValues = ShippingRequest & {
+  sku?: string;
+};
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "Failed to calculate shipping cost";
+}
+
+export function ShippingCalculator() {
+  const [skus, setSkus] = useState<SkuOption[]>([]);
+  const [estimate, setEstimate] = useState<ShippingEstimateResponse | null>(
+    null,
+  );
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sku" | "manual">("sku");
+
+  const form = useForm<ShippingFormValues>({
+    defaultValues: {
+      origin_pincode: "110001", // Default to Delhi (can be configurable)
+      destination_pincode: "",
+      actual_weight_kg: 0.5,
+      length_cm: 20,
+      width_cm: 15,
+      height_cm: 10,
+    },
+  });
+
+  // Calculate volumetric weight on the fly for display
+  const w = form.watch("actual_weight_kg") || 0;
+  const l = form.watch("length_cm") || 0;
+  const wd = form.watch("width_cm") || 0;
+  const h = form.watch("height_cm") || 0;
+
+  const volumetricWeight = (l * wd * h) / 5000;
+  const billableWeight = Math.max(w, volumetricWeight);
+
+  // Fetch SKUs on mount
+  useEffect(() => {
+    async function loadSkus() {
+      try {
+        const response = await fetchApi<{ skus: SkuOption[] }>(
+          "dashboard/skus?active_only=true",
+        );
+        setSkus(response.skus);
+      } catch (error) {
+        console.error("Failed to load SKUs", error);
+      }
+    }
+    loadSkus();
+  }, []);
+
+  const onSubmit = async (data: ShippingRequest) => {
+    setIsCalculating(true);
+    setEstimate(null);
+
+    try {
+      if (activeTab === "sku") {
+        const selectedSku = form.getValues("sku");
+        if (!selectedSku) throw new Error("Please select a SKU first");
+
+        const res = await fetchApi<SkuShippingResponse>(
+          `shipping/estimate/sku/${selectedSku}`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              origin_pincode: data.origin_pincode,
+              destination_pincode: data.destination_pincode,
+            }),
+          },
+        );
+        setEstimate(res.estimate);
+
+        // Update form with the actual dimensions used by the backend
+        form.setValue("actual_weight_kg", res.dimensions_used.weight_kg);
+        form.setValue("length_cm", res.dimensions_used.length_cm);
+        form.setValue("width_cm", res.dimensions_used.width_cm);
+        form.setValue("height_cm", res.dimensions_used.height_cm);
+
+        toast.success("Calculated specific SKU shipping cost!");
+      } else {
+        const res = await fetchApi<ShippingEstimateResponse>(
+          "shipping/estimate",
+          {
+            method: "POST",
+            body: JSON.stringify(data),
+          },
+        );
+        setEstimate(res);
+        toast.success("Calculated custom dimension shipping cost!");
+      }
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsCalculating(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-6 md:grid-cols-12">
+      {/* ── Input Form ── */}
+      <Card className="md:col-span-5">
+        <CardHeader>
+          <div className="flex gap-4 mb-4">
+            <Button
+              variant={activeTab === "sku" ? "default" : "outline"}
+              className="w-full"
+              onClick={() => setActiveTab("sku")}
+            >
+              Select Existing SKU
+            </Button>
+            <Button
+              variant={activeTab === "manual" ? "default" : "outline"}
+              className="w-full"
+              onClick={() => setActiveTab("manual")}
+            >
+              Manual Dimensions
+            </Button>
+          </div>
+          <CardTitle>Shipment Details</CardTitle>
+          <CardDescription>
+            Enter destination and package dimensions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              {/* Location */}
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="origin_pincode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Origin Pincode</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 110001" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="destination_pincode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Destination Pincode</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 400001" required {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* SKU Selection OR Manual Dimensions */}
+              {activeTab === "sku" ? (
+                <FormField
+                  control={form.control}
+                  name="sku"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Select Product (SKU)</FormLabel>
+                      <Select
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          const selectedSku = skus.find((s) => s.sku === val);
+                          if (selectedSku) {
+                            form.setValue(
+                              "actual_weight_kg",
+                              selectedSku.weight_kg || 0,
+                            );
+                            form.setValue(
+                              "length_cm",
+                              selectedSku.length_cm || 0,
+                            );
+                            form.setValue(
+                              "width_cm",
+                              selectedSku.width_cm || 0,
+                            );
+                            form.setValue(
+                              "height_cm",
+                              selectedSku.height_cm || 0,
+                            );
+                            toast.info(`Auto-filled dimensions for ${val}`);
+                          }
+                        }}
+                        defaultValue={field.value as string}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a product..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {skus.map((sku) => (
+                            <SelectItem key={sku.sku} value={sku.sku}>
+                              {sku.sku} — {sku.product_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Dimensions will be auto-loaded securely from the
+                        database.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <div className="space-y-4 pt-4 border-t">
+                  <FormField
+                    control={form.control}
+                    name="actual_weight_kg"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Actual Weight (kg)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            required
+                            {...field}
+                            onChange={(e) =>
+                              field.onChange(parseFloat(e.target.value) || 0)
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid gap-4 grid-cols-3">
+                    <FormField
+                      control={form.control}
+                      name="length_cm"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>L (cm)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="1"
+                              required
+                              {...field}
+                              onChange={(e) =>
+                                field.onChange(parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="width_cm"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>W (cm)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="1"
+                              required
+                              {...field}
+                              onChange={(e) =>
+                                field.onChange(parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="height_cm"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>H (cm)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="1"
+                              required
+                              {...field}
+                              onChange={(e) =>
+                                field.onChange(parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Live Volumetric Calculation Display */}
+              <div className="bg-muted/50 p-4 rounded-lg flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Volumetric Weight</p>
+                  <p className="text-xs text-muted-foreground">
+                    (L × W × H) / 5000
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold">
+                    {volumetricWeight.toFixed(2)} kg
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Billable:{" "}
+                    <span className="text-foreground font-bold">
+                      {billableWeight.toFixed(2)} kg
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full" disabled={isCalculating}>
+                {isCalculating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Calculator className="mr-2 h-4 w-4" />
+                )}
+                Calculate Shipping Costs
+              </Button>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      {/* ── Results Output ── */}
+      <div className="md:col-span-7 space-y-6">
+        {!estimate ? (
+          <Card className="h-full flex items-center justify-center border-dashed bg-muted/20">
+            <div className="text-center p-8">
+              <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-20" />
+              <p className="text-muted-foreground">
+                Enter package details and hit calculate to compare FBA vs Local
+                standard rates.
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              {/* FBA Card */}
+              <Card
+                className={`border-2 ${estimate.recommended_carrier === "Amazon FBA" ? "border-green-500 bg-green-50/10" : "border-border"}`}
+              >
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex justify-between">
+                    Amazon FBA
+                    {estimate.recommended_carrier === "Amazon FBA" && (
+                      <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full flex items-center">
+                        Best
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription>Using Easy Ship rate card</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-4xl font-bold mb-2 text-foreground">
+                    {formatCurrency(estimate.fba)}
+                  </div>
+                  <ul className="text-sm space-y-1 text-muted-foreground">
+                    <li>
+                      Zone: <strong>{estimate.zone}</strong>
+                    </li>
+                    <li>
+                      Billable weight:{" "}
+                      <strong>{estimate.billable_weight_kg} kg</strong>
+                    </li>
+                  </ul>
+                </CardContent>
+              </Card>
+
+              {/* Minimum Local Carrier Card */}
+              <Card
+                className={`border-2 ${estimate.recommended_carrier !== "Amazon FBA" ? "border-green-500 bg-green-50/10" : "border-border"}`}
+              >
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex justify-between">
+                    Local FBM
+                    {estimate.recommended_carrier !== "Amazon FBA" && (
+                      <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full flex items-center">
+                        Best
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    Lowest among BlueDart/Delhivery
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-4xl font-bold mb-2 text-foreground">
+                    {formatCurrency(
+                      Math.min(estimate.bluedart, estimate.delhivery),
+                    )}
+                  </div>
+                  <ul className="text-sm space-y-1 text-muted-foreground">
+                    <li>
+                      Recommended:{" "}
+                      <strong>{estimate.recommended_carrier}</strong>
+                    </li>
+                    <li>BlueDart: {formatCurrency(estimate.bluedart)}</li>
+                    <li>Delhivery: {formatCurrency(estimate.delhivery)}</li>
+                  </ul>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Analysis card */}
+            <Card>
+              <CardContent className="flex items-center justify-between py-6">
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`p-3 rounded-full ${estimate.recommended_carrier === "Amazon FBA" ? "bg-orange-100 text-orange-600" : "bg-blue-100 text-blue-600"}`}
+                  >
+                    <Truck className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-lg">
+                      {Math.abs(
+                        estimate.fba -
+                          Math.min(estimate.bluedart, estimate.delhivery),
+                      ) > 0.01
+                        ? `Save ${formatCurrency(Math.abs(estimate.fba - Math.min(estimate.bluedart, estimate.delhivery)))}`
+                        : "Cost is identical"}
+                    </h4>
+                    <p className="text-muted-foreground text-sm">
+                      by fulfilling via{" "}
+                      <strong>
+                        {estimate.recommended_carrier === "Amazon FBA"
+                          ? "FBA"
+                          : "FBM"}
+                      </strong>{" "}
+                      instead of{" "}
+                      {estimate.recommended_carrier === "Amazon FBA"
+                        ? "FBM"
+                        : "FBA"}
+                      .
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="h-6 w-6 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
