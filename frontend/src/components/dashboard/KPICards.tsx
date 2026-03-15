@@ -1,9 +1,92 @@
+"use client";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 import { DollarSign, ShoppingCart, TrendingUp, Activity } from "lucide-react";
 import { DashboardSummary } from "@/types/dashboard";
 
-export function KPICards({ data }: { data: DashboardSummary }) {
+type MetricTile = {
+  gross_sales: number;
+  units_sold: number;
+  ad_spend: number;
+  estimated_shipping: number;
+  net_profit: number;
+  margin_pct: number;
+};
+
+type SellerBoardDashboardSummary = {
+  today: MetricTile;
+  yesterday: MetricTile;
+  mtd: MetricTile;
+  last_month: MetricTile;
+};
+
+function Tile({ title, data }: { title: string; data: MetricTile }) {
+  const isPositive = data.net_profit >= 0;
+
+  return (
+    <Card className="shadow-sm border border-slate-200">
+      <CardHeader className="bg-slate-50 border-b border-slate-100 py-3">
+        <CardTitle className="text-sm font-semibold text-slate-700">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 space-y-4">
+        {/* Top line metrics */}
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <p className="text-slate-500 font-medium">Gross</p>
+            <p className="font-semibold text-slate-900">{formatCurrency(data.gross_sales)}</p>
+          </div>
+          <div>
+            <p className="text-slate-500 font-medium">Units</p>
+            <p className="font-semibold text-slate-900">{data.units_sold}</p>
+          </div>
+        </div>
+
+        {/* Expense metrics */}
+        <div className="grid grid-cols-2 gap-2 text-xs border-t border-slate-100 pt-3">
+          <div>
+            <p className="text-slate-500">Ad Spend</p>
+            <p className="text-red-500 font-medium">{formatCurrency(data.ad_spend)}</p>
+          </div>
+          <div>
+            <p className="text-slate-500">Est. Ship</p>
+            <p className="text-red-500 font-medium">{formatCurrency(data.estimated_shipping)}</p>
+          </div>
+        </div>
+
+        {/* Bottom line net profit */}
+        <div className="bg-slate-50 rounded-md p-3 mt-4 flex justify-between items-center">
+          <p className="font-semibold text-slate-700">Net Profit</p>
+          <div className="text-right">
+            <p className={`font-bold ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+              {formatCurrency(data.net_profit)}
+            </p>
+            <p className={`text-xs font-semibold ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+              {data.margin_pct.toFixed(2)}% margin
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+export default function KPICards({ data }: { data: any }) {
+  if (data?.today) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Tile title="Today" data={data.today} />
+        <Tile title="Yesterday" data={data.yesterday} />
+        <Tile title="Month to Date" data={data.mtd} />
+        <Tile title="Last Month" data={data.last_month} />
+      </div>
+    );
+  }
+
+  // Fallback to legacy
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>

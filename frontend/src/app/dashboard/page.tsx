@@ -9,14 +9,9 @@ import {
   RevenueProfitAreaChart,
   type RevenueProfitPoint,
 } from "@/components/dashboard/RevenueProfitAreaChart";
+import KPICards from "@/components/dashboard/KPICards";
 import { formatCurrency } from "@/lib/utils";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  TrendingUp,
-  CircleDollarSign,
-  ShoppingCart,
-  Percent,
-} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +20,8 @@ type OrderRow = {
   amazon_order_id: string;
   purchase_date: string;
   order_total: number | string | null;
+  ad_spend?: number | string | null;
+  shipping_cost?: number | string | null;
 };
 
 type OrderItemRow = {
@@ -168,89 +165,47 @@ async function getDashboardData() {
     }
   }
 
-  return createLast30DaySeries(typedOrders, typedOrderItems);
-}
+  // Fetch the new sellerboard styled API route payload
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  let sellerBoardKpis = null;
+  try {
+    const res = await fetch(`${apiUrl}/dashboard/summary?days=60`, { cache: 'no-store' });
+    if (res.ok) {
+      sellerBoardKpis = await res.json();
+    }
+  } catch (error) {
+    console.error("Could not fetch SellerBoard KPIs:", error);
+  }
 
-function KpiCard({
-  title,
-  value,
-  description,
-  icon,
-  tone = "default",
-}: {
-  title: string;
-  value: string;
-  description: string;
-  icon: React.ReactNode;
-  tone?: "default" | "positive";
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
-        <span className="text-muted-foreground">{icon}</span>
-      </CardHeader>
-      <CardContent>
-        <div
-          className={
-            tone === "positive"
-              ? "text-2xl font-semibold text-emerald-500"
-              : "text-2xl font-semibold"
-          }
-        >
-          {value}
-        </div>
-        <CardDescription className="mt-1">{description}</CardDescription>
-      </CardContent>
-    </Card>
-  );
+  return { ...createLast30DaySeries(typedOrders, typedOrderItems), sellerBoardKpis };
 }
 
 export default async function DashboardPage() {
-  const { kpis, chartData } = await getDashboardData();
+  const { kpis, chartData, sellerBoardKpis } = await getDashboardData();
 
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl text-slate-800">
           Executive Dashboard
         </h1>
         <p className="text-sm text-muted-foreground md:text-base">
-          30-day business pulse for BKR&apos;s Amazon operations.
+          SellerBoard Style Overview
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Total Revenue"
-          value={formatCurrency(kpis.totalRevenue)}
-          description="Gross order value (30 days)"
-          icon={<CircleDollarSign className="h-4 w-4" />}
-        />
+      {sellerBoardKpis ? (
+        <KPICards data={sellerBoardKpis} />
+      ) : (
+        <div className="text-red-500">FastAPI backend is unavailable. Cannot load SellerBoard KPI tiles.</div>
+      )}
 
-        <KpiCard
-          title="True Net Profit"
-          value={formatCurrency(kpis.trueNetProfit)}
-          description="Revenue - COGS - Amazon Fees"
-          icon={<TrendingUp className="h-4 w-4" />}
-          tone="positive"
-        />
-
-        <KpiCard
-          title="Blended Margin %"
-          value={`${kpis.blendedProfitMarginPct.toFixed(1)}%`}
-          description="Weighted profit margin"
-          icon={<Percent className="h-4 w-4" />}
-        />
-
-        <KpiCard
-          title="Total Orders"
-          value={kpis.totalOrders.toLocaleString("en-IN")}
-          description="Orders in the last 30 days"
-          icon={<ShoppingCart className="h-4 w-4" />}
-        />
+      <div className="grid gap-6 mt-6">
+        <RevenueProfitAreaChart data={chartData} />
+      </div>
+    </div>
+  );
+}
       </div>
 
       <RevenueProfitAreaChart data={chartData} />
