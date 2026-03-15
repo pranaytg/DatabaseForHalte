@@ -1,0 +1,20 @@
+# ── Core ──
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# ── Database ──
+supabase>=2.3.0
+psycopg2-binary>=2.9.0
+
+# ── Amazon SP-API ──
+python-amazon-sp-api>=0.18.0
+tenacity>=8.2.0
+
+# ── Scheduler ──
+apscheduler>=3.10.0
+
+# ── HTTP ──
+httpx>=0.24,<0.28

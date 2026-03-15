@@ -1,0 +1,13 @@
+# Dependencies
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+node_modules/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
