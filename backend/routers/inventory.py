@@ -4,6 +4,7 @@ Inventory router — warehouse inventory views and FBM stock management.
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 import logging
 
 from ..database import supabase
@@ -73,6 +74,85 @@ async def get_inventory(
         logger.error(f"Inventory fetch error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── Dynamic Inventory Analytics & ADS ─────────────────────────────────────
+
+@router.get("/planner")
+async def get_inventory_planner():
+    """
+    Get detailed inventory plan including 30-day ADS (Average Daily Sales), 
+    Days of Stock, and Reorder Status.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = (now - timedelta(days=30)).isoformat()
+        
+        # Get sales over last 30 days
+        sales_resp = (
+            supabase.table("order_items")
+            .select("sku, quantity, orders!inner(purchase_date)")
+            .gte("orders.purchase_date", thirty_days_ago)
+            .execute()
+        )
+        
+        # Calculate trailing 30 day sales per SKU
+        sku_sales = {}
+        for item in sales_resp.data:
+            s_sku = item.get("sku")
+            q = int(item.get("quantity") or 0)
+            sku_sales[s_sku] = sku_sales.get(s_sku, 0) + q
+
+        # Fetch inventory & sku info
+        inv_query = (
+            supabase.table("warehouse_inventory")
+            .select("sku, quantity, sku_master(product_name, manufacturing_lead_time, transit_time)")
+            .execute()
+        )
+        
+        results = []
+        # Aggregate totals per sku (combining warehouses)
+        agg_inv = {}
+        sku_metadata = {}
+        for row in inv_query.data:
+            sku = row["sku"]
+            master = row.get("sku_master") or {}
+            agg_inv[sku] = agg_inv.get(sku, 0) + int(row.get("quantity") or 0)
+            sku_metadata[sku] = {
+                "name": master.get("product_name"),
+                "lead_time": int(master.get("manufacturing_lead_time") or 15),
+                "transit_time": int(master.get("transit_time") or 15)
+            }
+
+        for sku, total_stock in agg_inv.items():
+            sold_30d = sku_sales.get(sku, 0)
+            ads = round(sold_30d / 30.0, 2)
+            days_of_stock = int(total_stock / ads) if ads > 0 else 999
+            
+            meta = sku_metadata.get(sku, {})
+            lead_time = meta.get("lead_time", 15)
+            transit_time = meta.get("transit_time", 15)
+            threshold = lead_time + transit_time
+            
+            if ads == 0 and total_stock == 0:
+                status = "Out of Stock"
+            elif days_of_stock <= threshold:
+                status = "Restock Immediately"
+            else:
+                status = "Healthy"
+                
+            results.append({
+                "sku": sku,
+                "product_name": meta.get("name"),
+                "available_stock": total_stock,
+                "ads_30d": ads,
+                "days_of_stock": days_of_stock,
+                "reorder_status": status,
+                "threshold_days": threshold
+            })
+            
+        return {"inventory_plan": results}
+    except Exception as e:
+        logger.error(f"Planner error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── FBM inventory management (manual) ─────────────────────────────────────
 

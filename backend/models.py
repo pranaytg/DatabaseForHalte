@@ -82,7 +82,20 @@ class OrderResponse(BaseModel):
 
 # ── Dashboard summary ────────────────────────────────────────────────────────
 
-class DashboardSummary(BaseModel):
+class MetricTile(BaseModel):
+    gross_sales: float
+    units_sold: int
+    ad_spend: float
+    estimated_shipping: float
+    net_profit: float
+    margin_pct: float
+
+class SellerBoardDashboardSummary(BaseModel):
+    today: MetricTile
+    yesterday: MetricTile
+    mtd: MetricTile
+    last_month: MetricTile
+    # Keep legacy fields so old components don't break immediately
     total_revenue: float
     total_orders: int
     total_net_profit: float

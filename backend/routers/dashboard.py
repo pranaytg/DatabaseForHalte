@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 
 from ..database import supabase
-from ..models import DashboardSummary, COGSUpdate
+from ..models import SellerBoardDashboardSummary, COGSUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Dashboard"])
@@ -16,25 +16,65 @@ router = APIRouter(prefix="/api", tags=["Dashboard"])
 
 # ── Dashboard KPI Summary ──────────────────────────────────────────────────
 
-@router.get("/dashboard/summary", response_model=DashboardSummary)
+def _aggregate_tile(data: list) -> dict:
+    gross = sum(float(r.get("line_item_revenue") or 0) for r in data)
+    net = sum(float(r.get("net_profit") or 0) for r in data)
+    # Since we are modifying Veeqo UI, we map existing data or default ad_spend/shipping for the view
+    ad_sq = sum(float(r.get("ad_spend") or 0) for r in data) 
+    ship_cost = sum(float(r.get("total_shipping_cost") or 0) for r in data)
+    units = len(data) # Simple count matching items
+    margin = (net / gross * 100) if gross > 0 else 0
+    return {
+        "gross_sales": round(gross, 2),
+        "units_sold": units,
+        "ad_spend": round(ad_sq, 2),
+        "estimated_shipping": round(ship_cost, 2),
+        "net_profit": round(net, 2),
+        "margin_pct": round(margin, 2)
+    }
+
+@router.get("/dashboard/summary", response_model=SellerBoardDashboardSummary)
 async def get_dashboard_summary(
     days: int = Query(30, ge=1, le=365, description="Number of days to aggregate"),
 ):
     """
-    Get dashboard KPI summary: revenue, profit, order counts, inventory.
-    Uses the v_order_profitability view for fast aggregation.
+    Get backend logic matching phase 3 SellerBoard Tiles.
     """
     try:
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        now = datetime.now(timezone.utc)
+        since = (now - timedelta(days=60)).isoformat() # get 60 days to cover last month
 
-        # Revenue & profit from the profitability view
         profit_resp = (
             supabase.table("v_order_profitability")
             .select("*")
             .gte("purchase_date", since)
             .execute()
         )
+        
+        data = profit_resp.data
 
+        # Filter sets 
+        today_data = [r for r in data if r.get("purchase_date", "").startswith(now.strftime("%Y-%m-%d"))]
+        yesterday = now - timedelta(days=1)
+        yesterday_data = [r for r in data if r.get("purchase_date", "").startswith(yesterday.strftime("%Y-%m-%d"))]
+        
+        # MTD
+        start_mtd = now.replace(day=1)
+        mtd_data =  [r for r in data if r.get("purchase_date") >= start_mtd.isoformat()]
+        
+        # Last Month
+        first_day_this_month = now.replace(day=1)
+        last_day_last_month = first_day_this_month - timedelta(days=1)
+        first_day_last_month = last_day_last_month.replace(day=1)
+        last_month_data = [r for r in data if first_day_last_month.isoformat() <= r.get("purchase_date") <= first_day_this_month.isoformat()]
+
+        # Compute Tiles
+        today_tile = _aggregate_tile(today_data)
+        yesterday_tile = _aggregate_tile(yesterday_data)
+        mtd_tile = _aggregate_tile(mtd_data)
+        last_month_tile = _aggregate_tile(last_month_data)
+
+        # Legacy logic fallback
         total_revenue = 0.0
         total_net_profit = 0.0
         fba_orders = 0
@@ -68,7 +108,11 @@ async def get_dashboard_summary(
         )
         total_inventory = sum(r.get("quantity", 0) for r in inv_resp.data)
 
-        return DashboardSummary(
+        return SellerBoardDashboardSummary(
+            today=today_tile,
+            yesterday=yesterday_tile,
+            mtd=mtd_tile,
+            last_month=last_month_tile,
             total_revenue=round(total_revenue, 2),
             total_orders=total_orders,
             total_net_profit=round(total_net_profit, 2),
